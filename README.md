@@ -1,21 +1,38 @@
 # About
 
+This fork of `7z2hashcat` adds support for .7z files with LZMA2 compressed headers, enhancing the original tool by philsmd. It integrates external dependencies (7z and xz). Assisted by GPT (with countless prompts and corrections).  
+
+If you encounter the error `WARNING: lzma2 compression found within 'archive.7z' is currently not supported, but could be probably added easily` in the original [7z2hashcat](https://github.com/philsmd/7z2hashcat) script, this fork might handle the file properly and generate hashes compatible with [hashcat](https://hashcat.net/hashcat/). Further testing is required to confirm compatibility in all cases.
+
+### From original repo:
 The goal of this project is to make it very easy to convert password-protected .7z files (and .sfx files which contain .7z files) to "hashes" which hashcat can crack with mode: -m 11600 = 7-Zip
+
+## Choosing the Right Version
+
+- **Windows users who do not require support for LZMA2 compressed headers**:  
+  Download the [original release version](https://github.com/philsmd/7z2hashcat/releases).
+
+- **Other users who do not require support for LZMA2 compressed headers**:  
+  Use the [original repository](https://github.com/philsmd/7z2hashcat).
+
+- **Users who need support for LZMA2 compressed headers**:  
+  Try to use this fork :)
 
 # Requirements
 
 Software:  
-- if you are using the windows operating system, you could just use the [release version](https://github.com/philsmd/7z2hashcat/releases)
-- if you are using a different operating system or if you prefer to not use the .exe file:
-  - Perl must be installed (should work on *nix and windows with perl installed)
-  - Perl module "Compress::Raw::Lzma" is required (this is needed because the .7z header will be compressed whenever it contains several files and a non-encrypted header is used)
-    - example on how to install it on ubuntu:  
-    `sudo apt install libcompress-raw-lzma-perl`  
-    or  
-    `sudo cpan Compress::Raw::Lzma`
-  - Perl module "File::Basename" is required for the John The Ripper output format (with file names in the hash)
+- Perl must be installed (should work on *nix and windows with perl installed)
+- Perl module "Compress::Raw::Lzma" is required (this is needed because the .7z header will be compressed whenever it contains several files and a non-encrypted header is used)
+  - example on how to install it on ubuntu:  
+  `sudo apt install libcompress-raw-lzma-perl`  
+  or  
+  `sudo cpan Compress::Raw::Lzma`
+- Perl module "File::Basename" is required for the John The Ripper output format (with file names in the hash)
+- 7z and xz programs must be installed
 
-Note: for windows users the [release page](https://github.com/philsmd/7z2hashcat/releases) provides executable files (.exe) which should work AS-IS without the need to install perl or perl modules.  
+### About windows builds (from original repo):
+
+Note: for windows users the [original release page](https://github.com/philsmd/7z2hashcat/releases) provides executable files (.exe) which should work AS-IS without the need to install perl or perl modules.  
 Attention: the release version (7z2hashcat.exe) might not be up-to-date with the newest source code all the time, therefore please prefer to use the source code version (instead of the .exe version), especially when you experience some problems and want to report issues.
 
 
@@ -25,9 +42,9 @@ Note: this paragraph is only intended for users that do not use the release vers
 You should be able to just run the `7z2hashcat` executable (`.exe`) within `cmd` (see note below) if you are a windows user.
 
 * Clone this repository:  
-    ```git clone https://github.com/philsmd/7z2hashcat.git```
+    ```git clone https://github.com/CyberFazan/7z2hashcat-lzma2-headers.git```
 * Enter the repository root folder:  
-    ```cd 7z2hashcat```
+    ```cd 7z2hashcat-lzma2-headers```
 * Run it:  
     ```perl 7z2hashcat.pl file.7z```
 * Copy output to a file (or redirect output to a file (>) directly) and run it with hashcat using mode -m 11600 = 7-Zip
@@ -164,6 +181,7 @@ For debugging / troubleshooting purposes, we have also developed a tool that tri
 Credits go to:  
   
 * philsmd, hashcat project
+* CyberFazan - ugly support for .7z with LZMA2 compressed headers
 
 # License/Disclaimer
 

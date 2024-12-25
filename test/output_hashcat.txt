@@ -1,0 +1,78 @@
+./hashcat_run.sh
+hashcat (v6.2.6) starting
+
+nvmlDeviceGetFanSpeed(): Not Supported
+
+CUDA API (CUDA 12.7)
+====================
+* Device #1: NVIDIA GeForce RTX 4060 Laptop GPU, 7731/7832 MB, 24MCU
+
+OpenCL API (OpenCL 3.0 CUDA 12.7.33) - Platform #1 [NVIDIA Corporation]
+=======================================================================
+* Device #2: NVIDIA GeForce RTX 4060 Laptop GPU, skipped
+
+This hash-mode is known to emit multiple valid candidates for the same hash.
+Use --keep-guessing to continue attack after finding the first crack.
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 20
+
+Hashes: 1 digests; 1 unique digests, 1 unique salts
+Bitmaps: 16 bits, 65536 entries, 0x0000ffff mask, 262144 bytes, 5/13 rotates
+
+Optimizers applied:
+* Optimized-Kernel
+* Zero-Byte
+* Single-Hash
+* Single-Salt
+* Brute-Force
+
+Watchdog: Temperature abort trigger set to 90c
+
+Host memory required for this attack: 1643 MB
+
+The wordlist or mask that you are using is too small.
+This means that hashcat cannot use the full parallel power of your device(s).
+Unless you supply more work, your cracking speed will drop.
+For tips on supplying more work, see: https://hashcat.net/faq/morework
+
+Approaching final keyspace - workload adjusted.
+
+Cracking performance lower than expected?
+
+* Append -w 3 to the commandline.
+  This can cause your screen to lag.
+
+* Append -S to the commandline.
+  This has a drastic speed impact but can be better for specific attacks.
+  Typical scenarios are a small wordlist but a large ruleset.
+
+* Update your backend API runtime / driver the right way:
+  https://hashcat.net/faq/wrongdriver
+
+* Create more work items to make use of your parallelization power:
+  https://hashcat.net/faq/morework
+
+$7z$2$19$0$$16$49bcb7b004419f30c94a7721079633b8$347712428$32$18$7d95f668bba635541af95b2ebb7bdcf75734e4f6f7b6aa5dfc117e8d45c07176$14$18:j4ir
+
+Session..........: hashcat
+Status...........: Cracked
+Hash.Mode........: 11600 (7-Zip)
+Hash.Target......: $7z$2$19$0$$16$49bcb7b004419f30c94a7721079633b8$347...$14$18
+Time.Started.....: Wed Dec 25 23:27:56 2024 (14 secs)
+Time.Estimated...: Wed Dec 25 23:28:10 2024 (0 secs)
+Kernel.Feature...: Optimized Kernel
+Guess.Mask.......: ?l?d?l?l [4]
+Guess.Queue......: 1/1 (100.00%)
+Speed.#1.........:     4519 H/s (1.18ms) @ Accel:16 Loops:4096 Thr:32 Vec:1
+Recovered........: 1/1 (100.00%) Digests (total), 1/1 (100.00%) Digests (new)
+Progress.........: 66048/175760 (37.58%)
+Rejected.........: 0/66048 (0.00%)
+Restore.Point....: 2304/6760 (34.08%)
+Restore.Sub.#1...: Salt:0 Amplifier:7-8 Iteration:520192-524288
+Candidate.Engine.: Device Generator
+Candidates.#1....: j0yc -> j1um
+Hardware.Mon.#1..: Temp: 53c Util: 82% Core:2535MHz Mem:8001MHz Bus:8
+
+Started: Wed Dec 25 23:27:54 2024
+Stopped: Wed Dec 25 23:28:12 2024

@@ -9,15 +9,16 @@ use File::Basename;
 # authors:
 # philsmd
 # magnum (added proper handling of BCJ et. al. and adapt to JtR use)
+# CyberFazan (added support for 7z files with LZMA2 compressed headers, even with external deps)
 
 # version:
-# 2.2
+# 2.2.1
 
 # date released:
 # April 2015
 
 # date last updated:
-# June 15 2024
+# December 25 2024
 
 # license:
 # public domain
@@ -25,16 +26,19 @@ use File::Basename;
 # dependencies:
 # Compress::Raw::Lzma
 # File::Basename
+# 7z and xz packages
 
 # supported file types:
 # - is able to identify and parse .7z files
 # - is able to identify and parse splitted .7z files (.7z.001, .7z.002, ...)
 # - is able to identify and parse regular (non-packed) .sfx files
+# - is able to identify and parse .7z files with LZMA2 compressed headers
 
 # install dependencies like this:
 #    sudo cpan Compress::Raw::Lzma
 # or sudo apt-get install libcompress-raw-lzma-perl
 # or sudo perl -MCPAN -e 'install Compress::Raw::Lzma'
+# and you should have 7z and xz installed (external deps for lzma2 headers decompression)
 
 
 #
@@ -260,6 +264,69 @@ my %SEVEN_ZIP_COMPRESSOR_NAMES   = (1 => "LZMA1", 2 => "LZMA2", 3 => "PPMD", 6 =
 #
 # Helper functions
 #
+
+sub get_lzma2_dict_info_from_7z {
+  my $archive_path = shift;
+
+  # Run '7z l -slt' on the archive, capturing all output
+  my $cmd = "7z l -slt \"$archive_path\" 2>&1";
+  my @out = `$cmd`;
+
+  # Look for a line with: Method = LZMA2:x ...
+  foreach my $line (@out) {
+    chomp $line;
+    if ($line =~ /Method\s*=\s*(.*)/) {
+      my $method_str = $1;
+
+      # Match LZMA2 dictionary size
+      if ($method_str =~ /LZMA2:(\d+[kmgtKMGT]?)/) {
+        my $dict_size_str = $1;
+
+        # If plain number, calculate size and exponent directly
+        if ($dict_size_str =~ /^(\d+)$/) {
+          my $exponent = $1;
+          my $size = 1 << $exponent; # 2^exponent
+          return { size => $size, exponent => $exponent };
+        }
+
+        # Convert shorthand format to dictionary size in bytes
+        my $dict_size_bytes = parse_shorthand_size($dict_size_str);
+
+        # Calculate exponent from size if valid
+        if (defined $dict_size_bytes) {
+          my $exponent = int(log($dict_size_bytes) / log(2)); # log2(size)
+          return { size => $dict_size_bytes, exponent => $exponent };
+        }
+      }
+    }
+  }
+
+  return undef; # Return undef if no valid dictionary size is found
+}
+
+# Helper function to parse shorthand sizes like '3m', '512k', etc.
+sub parse_shorthand_size {
+  my $size_str = shift;
+
+  if ($size_str =~ /^(\d+)([kmgtKMGT])$/) {
+    my $size = $1;
+    my $unit = lc($2); # Normalize to lowercase
+
+    # Convert based on unit
+    if ($unit eq 'k') {
+      return $size * 1024; # Kilobytes
+    } elsif ($unit eq 'm') {
+      return $size * 1024 * 1024; # Megabytes
+    } elsif ($unit eq 'g') {
+      return $size * 1024 * 1024 * 1024; # Gigabytes
+    } elsif ($unit eq 't') {
+      return $size * 1024 * 1024 * 1024 * 1024; # Terabytes
+    }
+  }
+
+  return undef; # Invalid format
+}
+
 
 sub usage
 {
@@ -1549,10 +1616,218 @@ sub extract_hash_from_archive
   }
   elsif ($codec_id eq $SEVEN_ZIP_LZMA2)
   {
-    print STDERR "WARNING: lzma2 compression found within '" . $file_path . "' is currently not supported, ";
-    print STDERR "but could be probably added easily\n";
+    ########################################################################
+    # STEP 1: retrieve LZMA2-compressed bytes from the 7z file
+    ########################################################################
+    my $unpack_size = get_folder_aes_unpack_size($unpack_info, $folder_index);
+    my $data_len    = $pack_info->{'pack_sizes'}[$pack_size_index];
+    my $data        = my_read($fp, $data_len);
 
-    return "";
+    unless (defined $data && length($data) == $data_len)
+    {
+      print STDERR "ERROR: could not read $data_len bytes of LZMA2 data\n";
+      return "";
+    }
+
+    ########################################################################
+    # STEP 2: get LZMA2 exponent from external '7z l -slt'
+    ########################################################################
+    my $dict_info = get_lzma2_dict_info_from_7z($file_path);
+
+    # Default to exponent 24 and calculate size if function returns undef
+    my $lzma2_exponent = defined $dict_info ? $dict_info->{exponent} : 24;
+    my $dict_size = defined $dict_info ? $dict_info->{size} : (1 << 24); # 2^24 = 16777216 bytes
+
+    print STDERR "INFO: LZMA2 exponent = $lzma2_exponent\n";
+
+    ########################################################################
+    # STEP 3: clamp dict size for xz's valid range [4 KiB .. ~1.5 GiB]
+    ########################################################################
+    my $XZ_DICT_MIN = 4096;
+    my $XZ_DICT_MAX = 1610612736;  # ~1.5 GiB
+
+    if ($dict_size < $XZ_DICT_MIN) {
+      $dict_size = $XZ_DICT_MIN;
+    } elsif ($dict_size > $XZ_DICT_MAX) {
+      print STDERR "INFO: dictionary size $dict_size > $XZ_DICT_MAX; clamping\n";
+      $dict_size = $XZ_DICT_MAX;
+    }
+
+    my $dict_size_mb = int($dict_size / (1024 * 1024));
+    $dict_size_mb = 1 if ($dict_size_mb < 1);
+
+    print STDERR "DEBUG: final dict_size = $dict_size ($dict_size_mb MiB)\n";
+
+    ########################################################################
+    # STEP 4: write the LZMA2 raw data to a temp file
+    ########################################################################
+    my $temp_in  = "lzma2_in.bin";
+    my $temp_out = "lzma2_out.bin";
+
+    {
+      my $fh_in;
+      unless (open($fh_in, ">", $temp_in)) {
+        print STDERR "ERROR: cannot open '$temp_in' for writing\n";
+        return "";
+      }
+      binmode $fh_in;
+      print $fh_in $data;
+      close $fh_in;
+    }
+
+    ########################################################################
+    # STEP 5: call xz to decode
+    ########################################################################
+    my $xz_cmd = "xz --single-stream --format=raw --lzma2=dict=${dict_size_mb}MiB -d -c $temp_in > $temp_out";
+    print STDERR "DEBUG: xz_cmd = $xz_cmd\n";
+
+    my $ret = system($xz_cmd);
+    if ($ret != 0) {
+      print STDERR "WARNING: external xz command failed (exit code $ret)\n";
+      return "";
+    }
+
+    ########################################################################
+    # STEP 6: read the decompressed data
+    ########################################################################
+    my $decompressed_header = "";
+    {
+      my $fh_out;
+      unless (open($fh_out, "<", $temp_out)) {
+        print STDERR "ERROR: cannot open '$temp_out' for reading\n";
+        return "";
+      }
+      binmode $fh_out;
+      $decompressed_header = do { local $/; <$fh_out> };
+      close $fh_out;
+    }
+
+    unlink $temp_in, $temp_out;
+
+    unless (length($decompressed_header) > 0) {
+      print STDERR "WARNING: xz produced empty or no output for LZMA2 data\n";
+      return "";
+    }
+
+    ########################################################################
+    # STEP 7: parse the newly-decoded bytes as a 7z HEADER
+    ########################################################################
+    $memory_buffer_read_offset = 0;
+    my $id = read_id(\$decompressed_header);
+
+    unless (defined $id) {
+      print STDERR "WARNING: read_id() returned undef\n";
+      return "";
+    }
+
+    if ($id ne $SEVEN_ZIP_HEADER) {
+      print STDERR "WARNING: Decompressed block did NOT start with a 7z HEADER marker (got '$id')\n";
+      return "";
+    }
+
+    my $header = read_seven_zip_header(\$decompressed_header);
+    unless (defined $header) {
+      print STDERR "WARNING: read_seven_zip_header() returned undef\n";
+      return "";
+    }
+
+    ########################################################################
+    # STEP 8: update $archive so the script can continue parsing
+    ########################################################################
+    $archive = {
+      "signature_header" => $signature_header,
+      "parsed_header"    => $header
+    };
+
+    $parsed_header   = $archive->{'parsed_header'}       or return "";
+    $streams_info    = $parsed_header->{'streams_info'};
+
+    print STDERR "DEBUG: Parsing decoded header...\n";
+
+    if (! defined ($streams_info))
+    {
+      show_empty_streams_info_warning ($file_path);
+
+      return "";
+    }
+
+    $unpack_info = $streams_info->{'unpack_info'};
+    return "" unless (defined ($unpack_info));
+
+    $substreams_info = $streams_info->{'substreams_info'};
+
+    $digests = $unpack_info->{'digests'};
+    return "" unless (defined ($digests));
+
+    $folders = $unpack_info->{'folders'};
+    return "" unless (defined ($folders));
+
+    my $number_folders = $unpack_info->{'number_folders'};
+
+    $pack_info = $streams_info->{'pack_info'};
+    return "" unless (defined ($pack_info));
+
+    # loop over all folders/coders to check if we find an AES encrypted stream
+
+    $position_pack = $pack_info->{'pack_pos'};
+    $current_seek_position = $position_after_header + $position_pack; # reset the seek position
+
+    for (my $folder_pos = 0; $folder_pos < $number_folders; $folder_pos++)
+    {
+      $folder_index = $folder_pos;
+
+      $folder = @$folders[$folder_pos];
+      last unless (defined ($folder));
+
+      $number_coders = $folder->{'number_coders'};
+
+      my $num_pack_sizes = scalar (@{$pack_info->{'pack_sizes'}});
+
+      for (my $coder_pos = 0; $coder_pos < $number_coders; $coder_pos++)
+      {
+        $coder = $folder->{'coders'}[$coder_pos];
+        last unless (defined ($coder));
+
+        $coder_index = $coder_pos;
+
+        $codec_id = $coder->{'codec_id'};
+
+        # we stop after first AES found, but in theory we could also deal
+        # with several different AES streams (in that case we would need
+        # to print several hash buffers, but this is a very special case)
+
+        last if ($codec_id eq $SEVEN_ZIP_AES);
+      }
+
+      last if ($codec_id eq $SEVEN_ZIP_AES);
+
+      last unless (defined ($coder));
+
+      # ELSE: update seek position and index:
+
+      my $sum_packed_streams = $unpack_info->{'folders'}[$folder_pos]->{'sum_packed_streams'};
+
+      for (my $packed_stream = 0; $packed_stream < $sum_packed_streams; $packed_stream++)
+      {
+        my $pack_size = $pack_info->{'pack_sizes'}[$pack_size_index + $packed_stream];
+
+        $current_seek_position += $pack_size;
+      }
+
+      $pack_size_index += $sum_packed_streams;
+
+      $unpack_size_index += $substreams_info->{'unpack_stream_numbers'}[$folder_pos];
+    }
+
+    # we unfortunately can't do anything if no AES encrypted data was found
+
+    if ($codec_id ne $SEVEN_ZIP_AES)
+    {
+      print STDERR "WARNING: no AES data found in the 7z file '" . $file_path . "'\n";
+
+      return "";
+    }
+
   }
   elsif ($codec_id ne $SEVEN_ZIP_AES)
   {
